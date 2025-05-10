@@ -7,8 +7,7 @@ using Microsoft.OpenApi.Models;
 using eCommerce_dpei.repository;
 using eCommerce_dpei.Models;
 using eCommerce_dpei.Filters;
-using eCommerce_dpei.Services; // Add this import
-//using Swashbuckle.AspNetCore.Filters; //not used
+using eCommerce_dpei.Services; 
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,7 +24,6 @@ builder.Services.AddControllers().
         options.JsonSerializerOptions.WriteIndented = true;
     });
 
-// Add Entity Framework Core with SQL Server
 builder.Services.AddDbContext<EcommerceContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -37,7 +35,7 @@ builder.Services.AddScoped<ICartRepository, CartRepository>();
 builder.Services.AddScoped<ICheckoutRepository, CheckoutRepository>();
 builder.Services.AddScoped<IProductImageRepository, ProductImageRepository>();
 builder.Services.AddAutoMapper(typeof(Program));
-// Configure CORS
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSwagger", builder =>
@@ -71,7 +69,6 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "eCommerce API", Version = "v1" });
 
-    // Add the security definition for JWT
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
@@ -82,7 +79,6 @@ builder.Services.AddSwaggerGen(options =>
         BearerFormat = "JWT"
     });
 
-    // Add security requirement to all endpoints that require authorization
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -101,7 +97,6 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -110,10 +105,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Apply CORS middleware before Authentication/Authorization
 app.UseCors("AllowSwagger");
 
-// Middleware pipeline (order matters: Authentication -> Authorization -> Routing)
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseStaticFiles();

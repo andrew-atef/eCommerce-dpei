@@ -9,6 +9,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Linq;
+using System;
+using System.Threading.Tasks;
+using System.Collections.Generic; 
 
 namespace eCommerce_dpei.Controllers
 {
@@ -20,14 +24,15 @@ namespace eCommerce_dpei.Controllers
     {
         private readonly IMapper _mapper;
         private readonly ICartRepository _repository;
-        private readonly EcommerceContext _context;
-        private readonly IUnitOfWork _unitOfWork;
-        public CartController(ICartRepository repository, IMapper mapper, EcommerceContext context , IUnitOfWork unitOfWork)
+        private readonly EcommerceContext _context; 
+        private readonly IUnitOfWork _unitOfWork; 
+
+        public CartController(ICartRepository repository, IMapper mapper, EcommerceContext context, IUnitOfWork unitOfWork)
         {
             _repository = repository;
             _mapper = mapper;
-            _unitOfWork = unitOfWork;
-            _context = context;
+            _context = context; 
+            _unitOfWork = unitOfWork; 
         }
 
         [HttpPost]
@@ -35,24 +40,33 @@ namespace eCommerce_dpei.Controllers
         {
             try
             {
-                var product = _context.Products.Find(dto.ProductId);
+                var product = await _context.Products.FindAsync(dto.ProductId);
                 if (product == null)
                 {
                     return NotFound(new { Message = "Product not found" });
                 }
 
-                if (product.Stock < dto.Quantity)
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
                 {
-                    return BadRequest(new { Message = $"Not enough stock available. Current stock: {product.Stock}" });
+                    return Unauthorized(new { Message = "Invalid user identifier." });
                 }
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
 
-                var existingCartItem = await _repository.Create(dto, userId);
-                return Ok(new { Message = "Item added to cart successfully" });
+                var existingCartItem = await _repository.Get(c => c.CustomerId == userId && c.ProductId == dto.ProductId);
+                var prospectiveQuantity = (existingCartItem?.Quantity ?? 0) + dto.Quantity;
+
+                if (product.Stock < prospectiveQuantity)
+                {
+                    return BadRequest(new { Message = $"Not enough stock available. Requested total: {prospectiveQuantity}, Available: {product.Stock}" });
+                }
+
+                var cartItem = await _repository.Create(dto, userId);
+                return Ok(new { Message = "Item added/updated in cart successfully" });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { Message = $"Error adding item to cart: {ex.Message}" });
+                Console.WriteLine($"Error adding to cart: {ex}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Error adding item to cart." });
             }
         }
 
@@ -61,59 +75,81 @@ namespace eCommerce_dpei.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
-                var cartItems = await _repository.Get(c => c.CustomerId == userId);
-                if ( cartItems == null)
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
                 {
-                    return NotFound(new { Message = "Cart not found" });
+                    return Unauthorized(new { Message = "Invalid user identifier." });
                 }
+
+                var cartItems = await _repository.GetAll(c => c.CustomerId == userId);
+
+                if (!cartItems.Any())
+                {
+                    return Ok(new List<Cart>());
+                }
+
                 return Ok(cartItems);
             }
             catch (Exception ex)
             {
-                return BadRequest(new { Message = $"Error retrieving cart: {ex.Message}" });
+                Console.WriteLine($"Error retrieving cart: {ex}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Error retrieving cart." });
             }
         }
+
         [HttpPut("{productId}")]
         public async Task<IActionResult> UpdateCartItem(int productId, [FromBody] CartUpdateDto dto)
         {
+            if (dto.Quantity <= 0)
+            {
+                return BadRequest(new { Message = "Quantity must be positive." });
+            }
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
-
-
-                var cartItem = await _repository.Update(productId, userId, dto);
-                if (! cartItem)
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
                 {
-                    return NotFound(new { Message = "Cart item not found or product quantity more than staock" });
+                    return Unauthorized(new { Message = "Invalid user identifier." });
                 }
 
+                var success = await _repository.Update(productId, userId, dto);
 
+                if (!success)
+                {
+                    return NotFound(new { Message = "Cart item not found, product not found, or requested quantity exceeds stock." });
+                }
                 return Ok(new { Message = "Cart item updated successfully" });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { Message = $"Error updating cart item: {ex.Message}" });
+                Console.WriteLine($"Error updating cart item: {ex}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Error updating cart item." });
             }
         }
+
         [HttpDelete("{productId}")]
         public async Task<IActionResult> RemoveFromCart(int productId)
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
-                var cartItem =await _repository.Delete(productId,userId);
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+                if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
+                {
+                    return Unauthorized(new { Message = "Invalid user identifier." });
+                }
 
-                if (cartItem == null)
+                var deletedCartItem = await _repository.Delete(productId, userId);
+
+                if (deletedCartItem == null)
                 {
                     return NotFound(new { Message = "Cart item not found" });
                 }
-
                 return Ok(new { Message = "Item removed from cart successfully" });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { Message = $"Error removing item from cart: {ex.Message}" });
+                Console.WriteLine($"Error removing cart item: {ex}");
+                return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Error removing item from cart." });
             }
         }
     }

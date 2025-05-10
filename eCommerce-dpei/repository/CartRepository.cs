@@ -10,15 +10,17 @@ using System.Security.Claims;
 
 namespace eCommerce_dpei.repository
 {
-    public class CartRepository :  ICartRepository 
-    {   private readonly EcommerceContext _context;
-        private readonly IMapper _mapper; 
-        public CartRepository(EcommerceContext context , IMapper mapper)
+    public class CartRepository : ICartRepository
+    {
+        private readonly EcommerceContext _context;
+        private readonly IMapper _mapper;
+        public CartRepository(EcommerceContext context, IMapper mapper)
         {
             _context = context;
             _mapper = mapper;
         }
-        public async Task<Cart> Create([FromBody] CartDto dto , int userId)
+
+        public async Task<Cart> Create([FromBody] CartDto dto, int userId)
         {
             var existingCartItem = await Get(c => c.CustomerId == userId && c.ProductId == dto.ProductId);
             Cart resultCartItem;
@@ -37,15 +39,13 @@ namespace eCommerce_dpei.repository
                 resultCartItem = newCartItem;
             }
 
-           await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync();
             return resultCartItem;
         }
 
-        public async Task<Cart>? Delete(int id, int userId)
+        public async Task<Cart>? Delete(int productId, int userId)
         {
-            
-
-            var cartItem =await  Get(c => c.CustomerId == userId && c.ProductId == id);
+            var cartItem = await Get(c => c.CustomerId == userId && c.ProductId == productId);
 
             if (cartItem == null)
             {
@@ -56,13 +56,9 @@ namespace eCommerce_dpei.repository
             return cartItem;
         }
 
-
         public Cart? Get(int id)
         {
-            var cart = GetById(id);
-            if (cart == null)
-                return null;
-            return cart;
+            return GetById(id);
         }
 
         public async Task<Cart>? Get(Expression<Func<Cart, bool>> predicate)
@@ -70,23 +66,44 @@ namespace eCommerce_dpei.repository
             return await _context.Cart.FirstOrDefaultAsync(predicate);
         }
 
+        public async Task<IEnumerable<Cart>> GetAll(Expression<Func<Cart, bool>> predicate)
+        {
+            return await _context.Cart.Include(cart => cart.Product).Where(predicate).ToListAsync();
+        }
+
+
         public Cart? GetById(int Id)
         {
             return _context.Cart.Find(Id);
         }
 
-        public async Task<bool> Update(int id,int userId, [FromBody] CartUpdateDto dto)
+        public async Task<bool> Update(int productId, int userId, [FromBody] CartUpdateDto dto)
         {
-            var product = await _context.Products.FindAsync(id);
+            var product = await _context.Products.FindAsync(productId);
             if (product == null)
+            {
+                return false; 
+            }
+
+            var cartItem = await Get(c => c.CustomerId == userId && c.ProductId == productId);
+
+            if (cartItem == null)
+            {
+                return false; 
+            }
+
+            if (dto.Quantity > product.Stock)
+            {
+                return false; 
+            }
+            if (dto.Quantity <= 0)
             {
                 return false;
             }
-            var cartItem = await Get(c => c.CustomerId == userId && c.ProductId == id);
-           
+
             _mapper.Map(dto, cartItem);
-            if (cartItem.Quantity > product.Stock)
-                return false;
+            cartItem.UpdatedAt = DateTime.Now; 
+
             await _context.SaveChangesAsync();
             return true;
         }
